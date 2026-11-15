@@ -1,0 +1,17 @@
+# Changelog
+
+All notable changes to this project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+
+- `order-service`: orders API (create, get, cancel) with RFC 9457 errors and OpenAPI documentation
+- `order-service`: order events published through a transactional outbox, with a `published_events` log
+- `loyalty-service`: loyalty points accrued and reverted through an effectively-once inbox, points API
+- `notification-service`: order confirmation e-mails through an at-most-once inbox, notifications API
+- Dead letter topic `orders.events.DLT` for events that fail every retry
+- Docker Compose infrastructure for running the services from source
