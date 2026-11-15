@@ -25,7 +25,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class OrderConfirmationMailerUnitTest {
@@ -75,7 +77,21 @@ class OrderConfirmationMailerUnitTest {
         // when / then
         assertThatThrownBy(() -> tested.sendConfirmation(EVENT_ID, order()))
                 .isInstanceOf(MailSendException.class);
-        verifyNoInteractions(notifications);
+        verify(notifications, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("UT sendConfirmation() when the event was already mailed should send nothing")
+    void sendConfirmation_whenEventWasAlreadyMailed_shouldSendNothing() {
+        // given
+        when(notifications.existsByEventId(EVENT_ID)).thenReturn(true);
+
+        // when
+        tested.sendConfirmation(EVENT_ID, order());
+
+        // then
+        verifyNoInteractions(mailSender);
+        verify(notifications, never()).save(any());
     }
 
     private static OrderCreatedEvent order() {

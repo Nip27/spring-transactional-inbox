@@ -101,6 +101,30 @@ class OrderConfirmationInboxIntegrationTest extends ApplicationIntegrationTest {
                 .isZero();
     }
 
+    @Test
+    @DisplayName("IT order-created when replayed after the inbox forgot its id should not mail the confirmation again")
+    void orderCreated_whenReplayedAfterInboxForgotIt_shouldNotMailAgain() {
+        // given
+        long orderId = IDS.incrementAndGet();
+        String recipient = "customer-%d@example.com".formatted(orderId);
+        String marker = "marker-%d@example.com".formatted(orderId);
+        UUID eventId = UUID.randomUUID();
+        OrderCreatedEvent event = created(orderId, recipient);
+        sender.send(eventId, EventTypes.ORDER_CREATED, recipient, event);
+        awaitAtMost().until(() -> notificationsOf(eventId) == 1);
+        jdbc.update("DELETE FROM inbox_events WHERE id = ?", eventId);
+
+        // when
+        sender.send(eventId, EventTypes.ORDER_CREATED, recipient, event);
+        // consumed after the replay, so once it is mailed the replay has been handled too
+        sender.send(UUID.randomUUID(), EventTypes.ORDER_CREATED, recipient, created(IDS.incrementAndGet(), marker));
+
+        // then
+        awaitAtMost().until(() -> MailServer.receivedBy(marker).size() == 1);
+        assertThat(MailServer.receivedBy(recipient)).hasSize(1);
+        assertThat(notificationsOf(eventId)).isEqualTo(1);
+    }
+
     private long notificationsOf(UUID eventId) {
         return jdbc.queryForObject("SELECT count(*) FROM notifications WHERE event_id = ?", Long.class, eventId);
     }

@@ -16,7 +16,8 @@ import java.time.Instant;
  * <p>
  * Events of one order arrive in no guaranteed order, so a cancellation that comes first is recorded as a reversal of
  * zero points, and an accrual that comes after it is not made: the balance ends the same whichever event was first.
- * A repeated event is not this class's concern - the inbox in front of it does not let one through.
+ * A repeated event is normally stopped by the inbox in front of this class. One replayed after the inbox has
+ * forgotten its id (past {@code oncebox.inbox.clean-up.ttl}) finds its ledger entry already there and changes nothing.
  */
 @Service
 public class PointsService {
@@ -40,6 +41,9 @@ public class PointsService {
 
     @Transactional
     public void accrue(OrderCreatedEvent event) {
+        if (isApplied(event.orderId(), LedgerEntryKind.ACCRUAL)) {
+            return;
+        }
         if (ledger.findByOrderIdAndKind(event.orderId(), LedgerEntryKind.REVERSAL).isPresent()) {
             log.info("Order {} was cancelled before its points were accrued, nothing to accrue", event.orderId());
             return;
@@ -50,6 +54,9 @@ public class PointsService {
 
     @Transactional
     public void revert(OrderCancelledEvent event) {
+        if (isApplied(event.orderId(), LedgerEntryKind.REVERSAL)) {
+            return;
+        }
         long points = ledger.findByOrderIdAndKind(event.orderId(), LedgerEntryKind.ACCRUAL)
                 .map(accrual -> -accrual.getPoints())
                 .orElse(0L);
@@ -64,6 +71,14 @@ public class PointsService {
         CustomerPointsEntity balance = balances.findById(customerId)
                 .orElseThrow(() -> new CustomerPointsNotFoundException(customerId));
         return new PointsBalanceResponse(balance.getCustomerId(), balance.getBalance(), balance.getUpdatedAt());
+    }
+
+    private boolean isApplied(Long orderId, LedgerEntryKind kind) {
+        boolean applied = ledger.findByOrderIdAndKind(orderId, kind).isPresent();
+        if (applied) {
+            log.info("Order {} already has its {} entry, the event is a replay and changes nothing", orderId, kind);
+        }
+        return applied;
     }
 
     private void record(Long orderId, Long customerId, LedgerEntryKind kind, long points) {

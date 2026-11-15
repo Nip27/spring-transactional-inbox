@@ -52,9 +52,11 @@ services:
           /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:29092 --list >/dev/null 2>&1 && break
           sleep 2
         done
+        # retention.ms + segment.ms (8 days) stays below the consumers' inbox TTL (14 days)
         for topic in orders.events orders.events.DLT; do
           /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:29092 \
-            --create --if-not-exists --topic "$$topic" --partitions 10 --replication-factor 1
+            --create --if-not-exists --topic "$$topic" --partitions 10 --replication-factor 1 \
+            --config retention.ms=604800000 --config segment.ms=86400000
         done
         echo "Topics are ready"
 

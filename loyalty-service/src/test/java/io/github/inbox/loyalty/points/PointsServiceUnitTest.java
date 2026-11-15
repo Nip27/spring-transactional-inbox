@@ -50,6 +50,7 @@ class PointsServiceUnitTest {
     @DisplayName("UT accrue() when customer has no balance yet should open one with the order's points")
     void accrue_whenCustomerHasNoBalance_shouldOpenBalanceWithPoints() {
         // given
+        when(ledger.findByOrderIdAndKind(ORDER_ID, LedgerEntryKind.ACCRUAL)).thenReturn(Optional.empty());
         when(ledger.findByOrderIdAndKind(ORDER_ID, LedgerEntryKind.REVERSAL)).thenReturn(Optional.empty());
         when(balances.findById(CUSTOMER_ID)).thenReturn(Optional.empty());
 
@@ -71,6 +72,7 @@ class PointsServiceUnitTest {
         // given
         CustomerPointsEntity existing = new CustomerPointsEntity(CUSTOMER_ID, NOW.minusSeconds(60));
         existing.add(100, NOW.minusSeconds(60));
+        when(ledger.findByOrderIdAndKind(ORDER_ID, LedgerEntryKind.ACCRUAL)).thenReturn(Optional.empty());
         when(ledger.findByOrderIdAndKind(ORDER_ID, LedgerEntryKind.REVERSAL)).thenReturn(Optional.empty());
         when(balances.findById(CUSTOMER_ID)).thenReturn(Optional.of(existing));
 
@@ -85,6 +87,7 @@ class PointsServiceUnitTest {
     @DisplayName("UT accrue() when the order was already cancelled should accrue nothing")
     void accrue_whenOrderWasCancelledFirst_shouldAccrueNothing() {
         // given
+        when(ledger.findByOrderIdAndKind(ORDER_ID, LedgerEntryKind.ACCRUAL)).thenReturn(Optional.empty());
         when(ledger.findByOrderIdAndKind(ORDER_ID, LedgerEntryKind.REVERSAL))
                 .thenReturn(Optional.of(new LedgerEntryEntity(ORDER_ID, CUSTOMER_ID, LedgerEntryKind.REVERSAL, 0, NOW)));
 
@@ -102,6 +105,7 @@ class PointsServiceUnitTest {
         // given
         CustomerPointsEntity existing = new CustomerPointsEntity(CUSTOMER_ID, NOW.minusSeconds(60));
         existing.add(21, NOW.minusSeconds(60));
+        when(ledger.findByOrderIdAndKind(ORDER_ID, LedgerEntryKind.REVERSAL)).thenReturn(Optional.empty());
         when(ledger.findByOrderIdAndKind(ORDER_ID, LedgerEntryKind.ACCRUAL))
                 .thenReturn(Optional.of(new LedgerEntryEntity(ORDER_ID, CUSTOMER_ID, LedgerEntryKind.ACCRUAL, 21, NOW)));
         when(balances.findById(CUSTOMER_ID)).thenReturn(Optional.of(existing));
@@ -120,6 +124,7 @@ class PointsServiceUnitTest {
     @DisplayName("UT revert() when the order earned nothing yet should record a reversal of zero points")
     void revert_whenOrderEarnedNothingYet_shouldRecordZeroReversal() {
         // given
+        when(ledger.findByOrderIdAndKind(ORDER_ID, LedgerEntryKind.REVERSAL)).thenReturn(Optional.empty());
         when(ledger.findByOrderIdAndKind(ORDER_ID, LedgerEntryKind.ACCRUAL)).thenReturn(Optional.empty());
         when(balances.findById(CUSTOMER_ID)).thenReturn(Optional.empty());
 
@@ -129,6 +134,36 @@ class PointsServiceUnitTest {
         // then
         assertThat(savedLedgerEntry().getPoints()).isZero();
         assertThat(savedBalance().getBalance()).isZero();
+    }
+
+    @Test
+    @DisplayName("UT accrue() when the order already earned its points should change nothing")
+    void accrue_whenAccrualAlreadyRecorded_shouldChangeNothing() {
+        // given
+        when(ledger.findByOrderIdAndKind(ORDER_ID, LedgerEntryKind.ACCRUAL))
+                .thenReturn(Optional.of(new LedgerEntryEntity(ORDER_ID, CUSTOMER_ID, LedgerEntryKind.ACCRUAL, 21, NOW)));
+
+        // when
+        tested.accrue(created("21.00"));
+
+        // then
+        verify(ledger, never()).save(any());
+        verifyNoInteractions(balances);
+    }
+
+    @Test
+    @DisplayName("UT revert() when the order's points were already taken back should change nothing")
+    void revert_whenReversalAlreadyRecorded_shouldChangeNothing() {
+        // given
+        when(ledger.findByOrderIdAndKind(ORDER_ID, LedgerEntryKind.REVERSAL))
+                .thenReturn(Optional.of(new LedgerEntryEntity(ORDER_ID, CUSTOMER_ID, LedgerEntryKind.REVERSAL, -21, NOW)));
+
+        // when
+        tested.revert(cancelled());
+
+        // then
+        verify(ledger, never()).save(any());
+        verifyNoInteractions(balances);
     }
 
     @Test

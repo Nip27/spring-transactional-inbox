@@ -6,12 +6,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.context.TestConstructor;
 
 import java.time.Instant;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 
 @DataJpaTest
@@ -49,6 +51,29 @@ class NotificationRepositoryIntegrationTest extends PostgresIntegrationTest {
                         tuple(FIRST_EVENT, "first"),
                         tuple(SECOND_EVENT, "second")
                 );
+    }
+
+    @Test
+    @DisplayName("IT save() when the event already has a notification should reject the second one")
+    void save_whenEventAlreadyHasNotification_shouldRejectSecond() {
+        // given
+        tested.saveAndFlush(new NotificationEntity(FIRST_EVENT, 7L, "jane.doe@example.com", "first", NOW));
+
+        // when / then
+        assertThatThrownBy(() -> tested.saveAndFlush(
+                new NotificationEntity(FIRST_EVENT, 7L, "jane.doe@example.com", "again", NOW)))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("IT existsByEventId() when only another event was mailed should answer false")
+    void existsByEventId_whenOnlyAnotherEventWasMailed_shouldAnswerFalse() {
+        // given
+        tested.saveAndFlush(new NotificationEntity(FIRST_EVENT, 7L, "jane.doe@example.com", "first", NOW));
+
+        // when / then
+        assertThat(tested.existsByEventId(FIRST_EVENT)).isTrue();
+        assertThat(tested.existsByEventId(SECOND_EVENT)).isFalse();
     }
 
     @Test

@@ -198,6 +198,31 @@ class OrderEventsInboxIntegrationTest extends ApplicationIntegrationTest {
         assertThat(ledgerEntriesOfOrder(orderId)).isZero();
     }
 
+    @Test
+    @DisplayName("IT order-created when replayed after the inbox forgot its id should change nothing and not be parked")
+    void orderCreated_whenReplayedAfterInboxForgotIt_shouldChangeNothing() {
+        // given
+        long customerId = IDS.incrementAndGet();
+        String samePartition = String.valueOf(customerId);
+        UUID eventId = UUID.randomUUID();
+        OrderCreatedEvent event = created(IDS.incrementAndGet(), customerId, "18.00");
+        sender.send(eventId, EventTypes.ORDER_CREATED, samePartition, event);
+        awaitBalance(customerId, 18);
+        jdbc.update("DELETE FROM inbox_events WHERE id = ?", eventId);
+
+        // when
+        sender.send(eventId, EventTypes.ORDER_CREATED, samePartition, event);
+        // consumed after the replay, so once it is counted the replay has been handled too
+        sender.send(UUID.randomUUID(), EventTypes.ORDER_CREATED, samePartition,
+                created(IDS.incrementAndGet(), customerId, "2.00"));
+
+        // then
+        awaitBalance(customerId, 20);
+        assertThat(ledgerEntries(customerId)).isEqualTo(2);
+        assertThat(isInInbox(eventId)).as("the replay is recorded again").isTrue();
+        assertThat(deadLetters.findByHeader("oncebox_event_id", eventId.toString())).isEmpty();
+    }
+
     private void awaitBalance(long customerId, long expected) {
         awaitAtMost().until(() -> balances.findById(customerId).map(CustomerPointsEntity::getBalance),
                 balance -> balance.isPresent() && balance.get() == expected);

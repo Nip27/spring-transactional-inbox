@@ -57,6 +57,8 @@ oncebox:
       order-cancelled: io.github.inbox.contract.OrderCancelledEvent
     clean-up:
       enabled: true
-      ttl: 7d
+      # longer than a record can stay readable on orders.events (retention 7d + segment roll 1d), so the inbox still
+      # knows every event a rewound consumer can be handed again
+      ttl: 14d
       polling:
         initial-delay: 1m
