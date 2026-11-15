@@ -35,6 +35,7 @@
     </scm>
 
     <modules>
+        <module>inbox-events-contract</module>
     </modules>
 
     <properties>
