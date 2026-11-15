@@ -37,6 +37,7 @@
     <modules>
         <module>inbox-events-contract</module>
         <module>order-service</module>
+        <module>loyalty-service</module>
     </modules>
 
     <properties>
