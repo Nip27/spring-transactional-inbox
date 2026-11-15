@@ -11,6 +11,7 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.lang.Nullable;
+import org.springframework.validation.method.ParameterErrors;
 import org.springframework.validation.method.ParameterValidationResult;
 import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -66,8 +67,16 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         List<CommonProblems.FieldError> errors = new ArrayList<>();
         for (ParameterValidationResult result : exception.getParameterValidationResults()) {
             String name = result.getMethodParameter().getParameterName();
-            result.getResolvableErrors()
-                    .forEach(error -> errors.add(new CommonProblems.FieldError(name, error.getDefaultMessage())));
+            if (result instanceof ParameterErrors body) {
+                // a validated body or model attribute: name the fields inside it, not the Java parameter
+                body.getFieldErrors().forEach(
+                        error -> errors.add(new CommonProblems.FieldError(error.getField(), error.getDefaultMessage())));
+                body.getGlobalErrors().forEach(
+                        error -> errors.add(new CommonProblems.FieldError(name, error.getDefaultMessage())));
+            } else {
+                result.getResolvableErrors()
+                        .forEach(error -> errors.add(new CommonProblems.FieldError(name, error.getDefaultMessage())));
+            }
         }
         return validationFailed(exception, errors, headers, request);
     }

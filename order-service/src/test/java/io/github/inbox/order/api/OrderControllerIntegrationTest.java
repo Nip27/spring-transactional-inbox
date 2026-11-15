@@ -202,6 +202,21 @@ class OrderControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("IT cancel() when the reason is too long should name the reason field, not the request parameter")
+    void cancel_whenReasonIsTooLong_shouldNameReasonField() throws Exception {
+        // given
+        String body = "{\"reason\": \"%s\"}".formatted("x".repeat(501));
+
+        // when / then
+        mockMvc.perform(post("/api/v1/orders/7/cancel").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors", hasSize(1)))
+                .andExpect(jsonPath("$.errors[0].field").value("reason"))
+                .andExpect(jsonPath("$.errors[0].message").value("reason must be at most 500 characters"));
+        verifyNoInteractions(service);
+    }
+
+    @Test
     @DisplayName("IT cancel() when order is created should answer 200 with the cancelled order")
     void cancel_whenOrderIsCreated_shouldAnswerOk() throws Exception {
         // given
