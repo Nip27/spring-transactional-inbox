@@ -1,6 +1,7 @@
 package io.github.inbox.loyalty.points;
 
 import io.github.inbox.contract.OrderCancelledEvent;
+import io.github.inbox.loyalty.api.PointsBalanceResponse;
 import io.github.inbox.contract.OrderCreatedEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,6 +54,16 @@ public class PointsService {
                 .map(accrual -> -accrual.getPoints())
                 .orElse(0L);
         record(event.orderId(), event.customerId(), LedgerEntryKind.REVERSAL, points);
+    }
+
+    /**
+     * @throws CustomerPointsNotFoundException if no event of the customer has been handled yet
+     */
+    @Transactional(readOnly = true)
+    public PointsBalanceResponse balance(Long customerId) {
+        CustomerPointsEntity balance = balances.findById(customerId)
+                .orElseThrow(() -> new CustomerPointsNotFoundException(customerId));
+        return new PointsBalanceResponse(balance.getCustomerId(), balance.getBalance(), balance.getUpdatedAt());
     }
 
     private void record(Long orderId, Long customerId, LedgerEntryKind kind, long points) {

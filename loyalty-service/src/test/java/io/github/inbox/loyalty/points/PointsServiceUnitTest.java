@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -128,6 +129,30 @@ class PointsServiceUnitTest {
         // then
         assertThat(savedLedgerEntry().getPoints()).isZero();
         assertThat(savedBalance().getBalance()).isZero();
+    }
+
+    @Test
+    @DisplayName("UT balance() when the customer has a balance should return it")
+    void balance_whenCustomerHasBalance_shouldReturnIt() {
+        // given
+        CustomerPointsEntity existing = new CustomerPointsEntity(CUSTOMER_ID, NOW);
+        existing.add(120, NOW);
+        when(balances.findById(CUSTOMER_ID)).thenReturn(Optional.of(existing));
+
+        // when / then
+        assertThat(tested.balance(CUSTOMER_ID).balance()).isEqualTo(120);
+    }
+
+    @Test
+    @DisplayName("UT balance() when no event of the customer was handled should throw CustomerPointsNotFoundException")
+    void balance_whenCustomerIsUnknown_shouldThrowCustomerPointsNotFoundException() {
+        // given
+        when(balances.findById(CUSTOMER_ID)).thenReturn(Optional.empty());
+
+        // when / then
+        assertThatThrownBy(() -> tested.balance(CUSTOMER_ID))
+                .isInstanceOf(CustomerPointsNotFoundException.class)
+                .hasMessage("Customer 42 has no points yet");
     }
 
     private LedgerEntryEntity savedLedgerEntry() {
