@@ -19,6 +19,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
@@ -156,6 +157,21 @@ class OrderServiceUnitTest {
                 .isInstanceOf(OrderAlreadyCancelledException.class)
                 .hasMessage("Order 7 is already cancelled");
         assertThat(order.getCancelReason()).isEqualTo("first");
+        verifyNoInteractions(events);
+    }
+
+    @Test
+    @DisplayName("UT cancel() when a concurrent request cancelled the order first should refuse and publish nothing")
+    void cancel_whenConcurrentRequestCancelledFirst_shouldThrowOrderAlreadyCancelledException() {
+        // given
+        when(repository.findById(7L)).thenReturn(Optional.of(newOrder()));
+        when(repository.saveAndFlush(any(OrderEntity.class)))
+                .thenThrow(new ObjectOptimisticLockingFailureException(OrderEntity.class, 7L));
+
+        // when / then
+        assertThatThrownBy(() -> tested.cancel(7L, new CancelOrderRequest("second")))
+                .isInstanceOf(OrderAlreadyCancelledException.class)
+                .hasMessage("Order 7 is already cancelled");
         verifyNoInteractions(events);
     }
 

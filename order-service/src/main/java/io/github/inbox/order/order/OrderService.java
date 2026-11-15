@@ -8,6 +8,7 @@ import io.github.inbox.order.events.EventPublisher;
 import io.github.inbox.order.persistence.OrderEntity;
 import io.github.inbox.order.persistence.OrderRepository;
 import io.github.inbox.order.persistence.OrderStatus;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -54,11 +55,15 @@ public class OrderService {
     }
 
     /**
-     * Cancels a created order and publishes {@link EventTypes#ORDER_CANCELLED} in the same transaction. Cancelling an already cancelled order is refused rather than ignored, so a client
-     * retrying with another reason learns that the first cancellation stands.
+     * Cancels a created order and publishes {@link EventTypes#ORDER_CANCELLED} in the same transaction. Cancelling
+     * an already cancelled order is refused rather than ignored, so a client retrying with another reason learns that
+     * the first cancellation stands.
+     * <p>
+     * The cancellation is flushed before the event is published, so of two cancellations racing on one order the
+     * second meets the first one's version, publishes nothing and is refused like any later cancellation.
      *
      * @throws OrderNotFoundException         if there is no order with this id
-     * @throws OrderAlreadyCancelledException if the order is already cancelled
+     * @throws OrderAlreadyCancelledException if the order is already cancelled, or a concurrent request cancelled it
      */
     @Transactional
     public OrderResponse cancel(Long orderId, CancelOrderRequest request) {
@@ -67,6 +72,12 @@ public class OrderService {
             throw new OrderAlreadyCancelledException(orderId);
         }
         order.cancel(request.reason(), clock.instant());
+        try {
+            repository.saveAndFlush(order);
+        } catch (OptimisticLockingFailureException e) {
+            // cancelling is the only change an order takes, so whoever changed it first cancelled it
+            throw new OrderAlreadyCancelledException(orderId);
+        }
         events.publish(EventTypes.ORDER_CANCELLED, mapper.toCancelledEvent(order));
         return mapper.toResponse(order);
     }

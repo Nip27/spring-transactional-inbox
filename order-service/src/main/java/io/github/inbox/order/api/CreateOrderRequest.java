@@ -1,5 +1,6 @@
 package io.github.inbox.order.api;
 
+import io.github.inbox.order.api.validation.FitsOrderTotal;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
@@ -12,6 +13,7 @@ import jakarta.validation.constraints.Size;
 import java.util.List;
 
 @Schema(description = "Order to place")
+@FitsOrderTotal
 public record CreateOrderRequest(
         @Schema(description = "Customer placing the order", example = "42", minimum = "1",
                 requiredMode = Schema.RequiredMode.REQUIRED)
@@ -32,7 +34,8 @@ public record CreateOrderRequest(
         @Pattern(regexp = "^[A-Z]{3}$", message = "currency must be an ISO 4217 code of three capital letters")
         String currency,
 
-        @Schema(description = "Products ordered", requiredMode = Schema.RequiredMode.REQUIRED)
+        @Schema(description = "Products ordered, adding up to at most 99999999999999999.99",
+                requiredMode = Schema.RequiredMode.REQUIRED)
         @NotNull(message = "lines must not be null")
         @Size(min = 1, max = 50, message = "lines must hold between {min} and {max} items")
         List<@Valid @NotNull(message = "lines must not contain null") OrderLineRequest> lines

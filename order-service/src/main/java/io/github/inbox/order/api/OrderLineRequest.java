@@ -2,6 +2,7 @@ package io.github.inbox.order.api;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Digits;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
@@ -17,9 +18,10 @@ public record OrderLineRequest(
         @Size(max = 64, message = "productId must be at most {max} characters")
         String productId,
 
-        @Schema(description = "Number of units ordered", example = "2", minimum = "1",
+        @Schema(description = "Number of units ordered", example = "2", minimum = "1", maximum = "10000",
                 requiredMode = Schema.RequiredMode.REQUIRED)
         @Positive(message = "quantity must be positive")
+        @Max(value = 10_000, message = "quantity must be at most {value}")
         int quantity,
 
         @Schema(description = "Price of one unit in the currency of the order", example = "10.50",

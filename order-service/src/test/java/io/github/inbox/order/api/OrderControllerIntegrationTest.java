@@ -102,6 +102,39 @@ class OrderControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("IT create() when the lines add up to more than an order can store should answer 400 on lines")
+    void create_whenTotalOverflows_shouldAnswerValidationProblem() throws Exception {
+        // given
+        String tooExpensive = """
+                {"customerId": 42, "customerEmail": "customer@example.com", "currency": "EUR",
+                 "lines": [{"productId": "sku-1", "quantity": 2, "unitPrice": 99999999999999999.99}]}
+                """;
+
+        // when / then
+        mockMvc.perform(post("/api/v1/orders").contentType(MediaType.APPLICATION_JSON).content(tooExpensive))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("lines"))
+                .andExpect(jsonPath("$.errors[0].message").value("lines must add up to at most 99999999999999999.99"));
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    @DisplayName("IT create() when a line orders more than the largest quantity should answer 400 on it")
+    void create_whenQuantityIsTooLarge_shouldAnswerValidationProblem() throws Exception {
+        // given
+        String tooMany = """
+                {"customerId": 42, "customerEmail": "customer@example.com", "currency": "EUR",
+                 "lines": [{"productId": "sku-1", "quantity": 10001, "unitPrice": 1.00}]}
+                """;
+
+        // when / then
+        mockMvc.perform(post("/api/v1/orders").contentType(MediaType.APPLICATION_JSON).content(tooMany))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("lines[0].quantity"))
+                .andExpect(jsonPath("$.errors[0].message").value("quantity must be at most 10000"));
+    }
+
+    @Test
     @DisplayName("IT create() when body is not JSON should answer 400 without reaching the service")
     void create_whenBodyIsUnreadable_shouldAnswerBadRequest() throws Exception {
         // when / then
