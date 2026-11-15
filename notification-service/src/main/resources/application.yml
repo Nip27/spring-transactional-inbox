@@ -18,6 +18,11 @@ spring:
   mail:
     host: ${SMTP_HOST:localhost}
     port: ${SMTP_PORT:1025}
+    properties:
+      # JavaMail waits forever by default; a hanging mail server would stall the listener thread
+      mail.smtp.connectiontimeout: ${SMTP_CONNECT_TIMEOUT_MS:5000}
+      mail.smtp.timeout: ${SMTP_READ_TIMEOUT_MS:10000}
+      mail.smtp.writetimeout: ${SMTP_WRITE_TIMEOUT_MS:10000}
   liquibase:
     change-log: classpath:db/changelog/db.changelog-master.yaml
   kafka:
