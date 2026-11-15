@@ -35,7 +35,7 @@ jobs:
 
       - name: Build and test
         run: |
-          mvn -B clean verify || {
+          ./mvnw -B clean verify || {
             echo "=== Test failures ==="
             find . -path '*/surefire-reports/*.txt' -exec grep -l -E 'FAILURE|ERROR' {} \; -exec cat {} \;
             exit 1
