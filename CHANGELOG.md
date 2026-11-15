@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-14
+
 ### Added
 
 - `order-service`: orders API (create, get, cancel) with RFC 9457 errors and OpenAPI documentation
@@ -15,3 +17,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `notification-service`: order confirmation e-mails through an at-most-once inbox, notifications API
 - Dead letter topic `orders.events.DLT` for events that fail every retry
 - Docker Compose infrastructure for running the services from source
+
+[Unreleased]: https://github.com/dmitriy-iliyov/spring-transactional-inbox/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/dmitriy-iliyov/spring-transactional-inbox/releases/tag/v0.1.0
