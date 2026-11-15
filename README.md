@@ -36,6 +36,7 @@ committed - never before, never lost.
 - [Architecture](#%EF%B8%8F-architecture)
 - [How it works](#-how-it-works)
 - [Delivery guarantees](#%EF%B8%8F-delivery-guarantees)
+- [Keeping the inbox small](#-keeping-the-inbox-small)
 - [Quick start](#-quick-start)
 - [See the inbox at work](#-see-the-inbox-at-work)
 - [Tests](#-tests)
@@ -43,20 +44,20 @@ committed - never before, never lost.
 
 ## ✨ Highlights
 
-- 🔁 **Duplicates are a no-op.** The same event id delivered twice changes nothing the second time - no error, no
+- **Duplicates are a no-op.** The same event id delivered twice changes nothing the second time - no error, no
   retry, no dead letter, just a skip.
-- 🎯 **Two guarantees, chosen per side effect.** Database writes get *effectively-once*: the inbox record and the
+- **Two guarantees, chosen per side effect.** Database writes get *effectively-once*: the inbox record and the
   effect commit together. E-mails get *at-most-once*: the id is recorded before sending, so a confirmation is never
   sent twice.
-- 📤 **Atomic publishing.** The order, its outbox row and the event log entry are one transaction; a poller sends the
+- **Atomic publishing.** The order, its outbox row and the event log entry are one transaction; a poller sends the
   event with `acks=all`, retries with backoff and parks what keeps failing.
-- 🔀 **No ordering assumed.** A cancellation that overtakes its order is handled - the points balance ends the same
+- **No ordering assumed.** A cancellation that overtakes its order is handled - the points balance ends the same
   whichever event arrives first.
-- 🔒 **Safe under concurrency.** Two events of one customer at once cannot lose an update: optimistic locking rolls
+- **Safe under concurrency.** Two events of one customer at once cannot lose an update: optimistic locking rolls
   the loser back together with its inbox record, and Kafka redelivers it onto fresh state.
-- 🪦 **Nothing silently dropped.** An event that fails all retries lands on `orders.events.DLT` instead of being
+- **Nothing silently dropped.** An event that fails all retries lands on `orders.events.DLT` instead of being
   committed past.
-- 🧾 **Standard errors and docs.** Every error is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem
+- **Standard errors and docs.** Every error is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem
   detail; APIs are described with OpenAPI.
 
 ## 🤔 Why an inbox?
@@ -65,105 +66,91 @@ Kafka delivers **at least once**. A redelivery is not an edge case - it is the n
 after the work and before the offset commit, to a rebalance in the middle of a batch, or to an operator replaying a
 topic after an incident. Every consumer that changes state has to survive the same event twice.
 
+The usual reflex is to make the handler itself idempotent - check whether the order already has its points before
+adding them. That works for one table and one kind of effect, but every new consumer has to invent its own check, and
+some effects (an e-mail, a call to a payment provider) leave nothing in your database to check against. An inbox moves
+the question from "has this *effect* happened?" to "have I seen this *event*?", which has the same answer for every
+consumer: look the event id up in one table.
+
 | Approach | ✅ Pros | ⚠️ Cons |
 |----------|---------|---------|
 | **No deduplication** | ✅ Nothing to build | ❌ Every redelivery repeats the side effect: points accrued twice, e-mails sent twice |
 | **Natural keys / unique constraints** | ✅ No extra table | ❌ Works only where the effect has a natural key<br>❌ A duplicate surfaces as an error to retry or park, not as a no-op<br>❌ Says nothing about effects outside the database |
 | **Transactional inbox** *(this project)* | ✅ One table of consumed event ids, for any kind of effect<br>✅ The id and the effect commit together - or, for effects that cannot be undone, the id commits first<br>✅ A duplicate is a skip, not an error | ⚠️ Every consumed event costs one insert<br>⚠️ The id table needs scheduled clean-up by TTL (built in) |
 
+The inbox is only as good as the ids it is given: the producer has to put a stable id on every event, and the same
+event has to keep that id however many times it is sent. That is the job of the outbox on the producer side. Writing
+the order to the database and then sending to Kafka is two separate writes - a crash between them either loses the
+event or, if the send goes first, announces an order that was never stored. The outbox writes the event into the same
+database transaction as the order and sends it afterwards, so the event exists exactly when the order does and keeps
+its id across every retry.
+
 ## 🏗️ Architecture
 
-```mermaid
-flowchart LR
-    Client(["🧑 Client"]) -->|POST /api/v1/orders| Order["📦 order-service"]
-    Order -->|"order + outbox row<br/>(one transaction)"| OrdersDB[("orders")]
-    Order -. "outbox poller" .-> Kafka{{"orders.events"}}
-    Kafka --> Loyalty["⭐ loyalty-service<br/>effectively-once"]
-    Kafka --> Notification["✉️ notification-service<br/>at-most-once"]
-    Loyalty -->|"inbox id + points<br/>(one transaction)"| LoyaltyDB[("loyalty")]
-    Notification -->|"inbox id first"| NotificationsDB[("notifications")]
-    Notification -->|confirmation| SMTP(["📮 SMTP"])
-```
+![Architecture: order-service, Kafka, loyalty-service and notification-service](docs/images/architecture.png)
 
 | Service | Listens to | Does | Mode |
 |---------|------------|------|------|
-| 📦 `order-service` | HTTP | stores orders, publishes `order-created` / `order-cancelled` | transactional outbox |
-| ⭐ `loyalty-service` | `order-created`, `order-cancelled` | accrues and reverts loyalty points | `@TransactionalConsumer` |
-| ✉️ `notification-service` | `order-created` | sends an order confirmation e-mail | `@NonTransactionalConsumer` |
+| `order-service` | HTTP | stores orders, publishes `order-created` / `order-cancelled` | transactional outbox |
+| `loyalty-service` | `order-created`, `order-cancelled` | accrues and reverts loyalty points | `@TransactionalConsumer` |
+| `notification-service` | `order-created` | sends an order confirmation e-mail | `@NonTransactionalConsumer` |
 
 ## 🔄 How it works
 
-### 📤 Publishing - `order-service`
+### Publishing - `order-service`
 
-```mermaid
-sequenceDiagram
-    actor Client
-    participant Order as order-service
-    participant DB as PostgreSQL
-    participant Poller as Outbox poller
-    participant Kafka
-
-    Client->>Order: POST /api/v1/orders
-    Order->>DB: BEGIN
-    Order->>DB: INSERT order + lines
-    Order->>DB: INSERT outbox row (event id = UUIDv7)
-    Order->>DB: INSERT published_events (same id)
-    Order->>DB: COMMIT
-    Order-->>Client: 201 Created
-    Poller->>DB: lock a batch (FOR UPDATE SKIP LOCKED)
-    Poller->>Kafka: send with header oncebox_event_id (acks=all)
-    Poller->>DB: mark sent / schedule retry / move to DLQ
-```
+![Publishing through the transactional outbox](docs/images/sequence-publishing.png)
 
 If the transaction rolls back, there is no event. If Kafka is down, the event waits in the table and is retried with
-backoff. The id it gets here travels as the `oncebox_event_id` header - the id every consumer deduplicates on.
+backoff - up to 5 times, 5 seconds apart and doubling - and an event that still cannot be sent moves to the outbox's
+dead letter table instead of blocking the ones behind it. The poller locks its batch with `FOR UPDATE SKIP LOCKED`, so
+several instances of `order-service` can run side by side without sending the same row twice.
 
-### ⭐ Effectively-once - `loyalty-service`
+The id an event gets here travels as the `oncebox_event_id` header, next to `oncebox_event_type`. It is the id every
+consumer deduplicates on, and the type tells the consumer which payload class to read the message into. Next to the
+outbox row, `order-service` writes the event to its own `published_events` log: outbox rows are deleted an hour after
+they are sent, while the log keeps every event with its id and payload, so you can always see what was published and
+send an event again under its original id.
 
-```mermaid
-sequenceDiagram
-    participant Kafka
-    participant Loyalty as loyalty-service
-    participant DB as PostgreSQL
+### Effectively-once - `loyalty-service`
 
-    Kafka->>Loyalty: order-created (oncebox_event_id)
-    Loyalty->>DB: BEGIN
-    Loyalty->>DB: INSERT inbox_events (id) ON CONFLICT DO NOTHING
-    alt first delivery
-        Loyalty->>DB: ledger entry + balance update
-        Loyalty->>DB: COMMIT
-    else already consumed
-        Loyalty->>DB: COMMIT (nothing else to do)
-    end
-    Loyalty-->>Kafka: commit offset
-```
+![Effectively-once consumption in loyalty-service](docs/images/sequence-effectively-once.png)
 
 The event id and the points are **one transaction**. If anything fails - a lost connection, an optimistic locking
 conflict on the balance - both roll back, the error handler redelivers the event with backoff, and the retry runs as
-if it were the first time.
+if it were the first time. This is what *effectively-once* means: the handler may run more than once, but only one
+run ever commits, so the balance changes exactly one time per event.
 
-### ✉️ At-most-once - `notification-service`
+Concurrency needs no code of its own. Two orders of one customer can be handled at the same moment on different
+partitions; both read the balance, and the second to commit fails its `@Version` check. Its points and its inbox
+record roll back together, Kafka hands the event over again, and the retry reads the balance the first one left. The
+redelivery is the retry, and the inbox is what makes a retry safe.
 
-```mermaid
-sequenceDiagram
-    participant Kafka
-    participant Notification as notification-service
-    participant DB as PostgreSQL
-    participant SMTP
+Behind the inbox, the points ledger keeps one accrual and one reversal per order (a unique key on order and kind).
+That second check covers what an inbox cannot see on its own: a cancellation that arrives before its order (the
+reversal is written with zero points and the late accrual is then ignored) and a replay of an event so old that its
+inbox record has already been cleaned up.
 
-    Kafka->>Notification: order-created (oncebox_event_id)
-    Notification->>DB: INSERT inbox_events (id) - committed at once
-    alt first delivery
-        Notification->>SMTP: send confirmation
-        Notification->>DB: INSERT notifications
-    else already consumed
-        Note over Notification: skipped - no second e-mail
-    end
-```
+An event that keeps failing is retried 5 times, starting at 500 ms and doubling up to 10 s, and then parked on
+`orders.events.DLT`. An event that can never succeed - no usable event id, or a type no consumer knows - goes there at
+once, without the retries.
+
+### At-most-once - `notification-service`
+
+![At-most-once consumption in notification-service](docs/images/sequence-at-most-once.png)
 
 An e-mail cannot be taken back, so the inbox records the event **before** sending. A duplicate is skipped - and so
 is a redelivery of an event whose sending failed: a missing confirmation is preferred to a double one, and the
 failure is logged with the event ids.
+
+The order matters because sending and the database cannot share a transaction. If the id were recorded after the
+e-mail, a crash between the two would leave no trace of the send, and the redelivery would mail the customer again.
+Recording it first moves the risk to the other side: a crash between the two loses one confirmation instead.
+
+Each sent e-mail is also stored in `notifications` under its event id (unique), and the mailer checks it before
+sending, so a replay older than the inbox still finds the earlier confirmation. SMTP calls have connect, read and
+write timeouts (5 s, 10 s, 10 s), so a mail server that stops answering fails the send instead of holding the
+listener thread forever.
 
 ## 🛡️ Delivery guarantees
 
@@ -173,6 +160,25 @@ failure is logged with the event ids.
 | Kafka → `loyalty-service` | **effectively-once** | inbox id and effect in one transaction |
 | Kafka → `notification-service` | **at-most-once** | inbox id committed before the e-mail |
 | an event that fails every retry | **parked** | `orders.events.DLT` |
+
+**Which mode for which effect?** Ask whether the effect can be rolled back together with the database transaction. A
+row in your own database can, so it goes through `@TransactionalConsumer` and gets effectively-once. An e-mail, an
+SMS or a call to another system cannot, so it goes through `@NonTransactionalConsumer` and is done at most once.
+
+No ordering is guaranteed on any hop. Events of one order can arrive in either order, and the consumers are written so
+that the outcome does not depend on it.
+
+## 🧹 Keeping the inbox small
+
+The inbox holds one row per consumed event, so it is cleaned up on a schedule: rows older than the TTL are deleted.
+Only one instance of a service cleans at a time - the job runs under a distributed lock kept in the `oncebox_jobs`
+table.
+
+The TTL is not arbitrary. An inbox can only recognise an event while it still remembers its id, so the TTL has to
+outlive every way the event can come back. The longest of them is a consumer group rewound to the start of the topic,
+and the oldest record it can be handed is bounded by the topic's retention. Here `orders.events` keeps records for
+7 days plus up to 1 day until a segment is rolled and can be deleted, and the inbox TTL is 14 days - comfortably longer.
+If you raise the topic retention, raise the TTL with it.
 
 ## 🚀 Quick start
 
@@ -184,7 +190,8 @@ You need **Java 21**, **Maven 3.9+** and **Docker**.
 docker compose up -d
 ```
 
-**2. Build and start the services** (one terminal each):
+**2. Build and start the services** (one terminal each). `install` puts the shared event contract module into
+your local Maven repository, so each service can then be started on its own:
 
 ```bash
 mvn clean install -DskipTests
@@ -196,10 +203,10 @@ mvn -pl notification-service spring-boot:run -Dspring-boot.run.profiles=dev
 
 | | URL |
 |---|---|
-| 📦 order-service | http://localhost:8080 |
-| ⭐ loyalty-service | http://localhost:8081 |
-| ✉️ notification-service | http://localhost:8082 |
-| 📮 Mailpit | http://localhost:8025 |
+| order-service | http://localhost:8080 |
+| loyalty-service | http://localhost:8081 |
+| notification-service | http://localhost:8082 |
+| Mailpit | http://localhost:8025 |
 
 **3. Place an order:**
 
@@ -217,7 +224,11 @@ curl -X POST http://localhost:8080/api/v1/orders \
   }'
 ```
 
-**4. Watch it arrive** - points for every whole euro, and a confirmation in [Mailpit](http://localhost:8025):
+An order takes up to 50 lines, each with a quantity of at most 10000, and its total has to fit 17 digits before the
+decimal point; anything else is answered with `400` and the offending field named.
+
+**4. Watch it arrive** - one point for every whole unit of the total (26.25 EUR here, so 26 points), and a
+confirmation in [Mailpit](http://localhost:8025):
 
 ```bash
 curl http://localhost:8081/api/v1/customers/42/points
@@ -237,6 +248,9 @@ curl -X POST http://localhost:8080/api/v1/orders/1/cancel \
 curl http://localhost:8081/api/v1/customers/42/points
 # {"customerId":42,"balance":0,"updatedAt":"..."}
 ```
+
+Cancelling it a second time - or two cancellations racing each other - is answered with `409 Conflict`, and only one
+`order-cancelled` event is published.
 
 Errors come back as RFC 9457 problem details, with a `type` a client can branch on:
 
@@ -267,12 +281,16 @@ printf 'oncebox_event_id:%s,oncebox_event_type:order-created\t%s\n' "${EVENT%% *
       --bootstrap-server localhost:29092 --topic orders.events --reader-property parse.headers=true
 ```
 
-Both consumers receive it, and both skip it:
+The `published_events` log gives back the event's id and payload, and the console producer sends them with the same
+two headers the outbox sets. Both consumers receive it, and both skip it:
 
 ```bash
 curl http://localhost:8081/api/v1/customers/42/points   # same balance as before
 curl http://localhost:8025/api/v1/messages              # still one confirmation
 ```
+
+To see the second line of defence, delete the event's row from `inbox_events` in the `loyalty` database and send it once
+more: the inbox no longer knows it, and the points ledger still refuses a second accrual.
 
 ## 🧪 Tests
 
@@ -285,6 +303,10 @@ stage the situations the inbox exists for:
 - ✅ a cancellation that overtakes its order - balance stays at zero
 - ✅ an event of a type no consumer knows - parked on the dead letter topic, never recorded as consumed
 - ✅ an order whose event log write fails - neither the order nor its outbox row is stored
+- ✅ a replay older than the inbox (its inbox record deleted) - no second accrual, no second e-mail
+- ✅ an event without a usable id - parked on the dead letter topic at once, without retries
+- ✅ a mail server that accepts the connection and never answers - the send times out
+- ✅ two cancellations of one order at the same moment - one `200`, one `409`, one event
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the test conventions.
 
@@ -305,9 +327,9 @@ are self-contained and come with a clear definition of done. Start with [CONTRIB
 
 ## 📚 Learn more
 
-- 🧩 [oncebox](https://github.com/dmitriy-iliyov/oncebox) - the outbox and inbox library behind these services
-- 📖 [oncebox documentation](https://dmitriy-iliyov.github.io/oncebox-docs/) - configuration, guarantees, schema
-- 🔐 [Security policy](SECURITY.md)
+- [oncebox](https://github.com/dmitriy-iliyov/oncebox) - the outbox and inbox library behind these services
+- [oncebox documentation](https://dmitriy-iliyov.github.io/oncebox-docs/) - configuration, guarantees, schema
+- [Security policy](SECURITY.md)
 
 ## 📄 License
 
