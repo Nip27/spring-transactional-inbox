@@ -11,6 +11,8 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.messaging.Message;
 import org.springframework.stereotype.Component;
 
+import java.util.UUID;
+
 /**
  * Turns order events into points, each event at most once in effect.
  * <p>
@@ -30,7 +32,15 @@ public class OrderEventsListener {
 
     @KafkaListener(topics = Topics.ORDER_EVENTS, containerFactory = "inboxKafkaListenerContainerFactory")
     public void onOrderEvent(Message<?> message) {
-        inbox.consume(message, OnceboxHeadersUtils::extractId, this::handle);
+        inbox.consume(message, OrderEventsListener::eventId, this::handle);
+    }
+
+    private static UUID eventId(Message<?> message) {
+        try {
+            return OnceboxHeadersUtils.extractId(message);
+        } catch (IllegalArgumentException e) {
+            throw new MalformedEventException("Message without a usable event id: " + e.getMessage(), e);
+        }
     }
 
     private void handle(Message<?> message) {

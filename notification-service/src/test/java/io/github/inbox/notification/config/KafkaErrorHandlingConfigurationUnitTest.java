@@ -1,5 +1,6 @@
 package io.github.inbox.notification.config;
 
+import io.github.inbox.notification.events.MalformedEventException;
 import io.github.inbox.notification.events.UnsupportedEventException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -30,5 +31,12 @@ class KafkaErrorHandlingConfigurationUnitTest {
     void kafkaErrorHandler_whenEventIsUnsupported_shouldNotRetry() {
         // when / then
         assertThat(tested.removeClassification(UnsupportedEventException.class)).isFalse();
+    }
+
+    @Test
+    @DisplayName("UT kafkaErrorHandler() when a message has no usable event id should not retry it")
+    void kafkaErrorHandler_whenEventIsMalformed_shouldNotRetry() {
+        // when / then
+        assertThat(tested.removeClassification(MalformedEventException.class)).isFalse();
     }
 }

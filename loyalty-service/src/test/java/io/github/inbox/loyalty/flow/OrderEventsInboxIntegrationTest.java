@@ -22,6 +22,7 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -29,6 +30,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static io.github.inbox.loyalty.support.Await.awaitAtMost;
+import static io.github.inbox.loyalty.support.Await.awaitWithin;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeast;
@@ -181,6 +183,21 @@ class OrderEventsInboxIntegrationTest extends ApplicationIntegrationTest {
         assertThat(isInInbox(eventId)).isFalse();
     }
 
+    @Test
+    @DisplayName("IT event without an event id when consumed should go to the dead letter topic without retries")
+    void event_whenEventIdIsMissing_shouldLandOnDeadLetterTopicWithoutRetries() {
+        // given
+        long orderId = IDS.incrementAndGet();
+
+        // when
+        sender.sendWithoutEventId(EventTypes.ORDER_CREATED, created(orderId, IDS.incrementAndGet(), "3.00"));
+
+        // then - the retries alone would take more than 15 seconds
+        awaitWithin(Duration.ofSeconds(8)).until(() -> deadLetters.findByPayloadField("orderId", orderId),
+                Optional::isPresent);
+        assertThat(ledgerEntriesOfOrder(orderId)).isZero();
+    }
+
     private void awaitBalance(long customerId, long expected) {
         awaitAtMost().until(() -> balances.findById(customerId).map(CustomerPointsEntity::getBalance),
                 balance -> balance.isPresent() && balance.get() == expected);
@@ -188,6 +205,10 @@ class OrderEventsInboxIntegrationTest extends ApplicationIntegrationTest {
 
     private boolean isInInbox(UUID eventId) {
         return jdbc.queryForObject("SELECT count(*) FROM inbox_events WHERE id = ?", Long.class, eventId) == 1;
+    }
+
+    private long ledgerEntriesOfOrder(long orderId) {
+        return jdbc.queryForObject("SELECT count(*) FROM points_ledger WHERE order_id = ?", Long.class, orderId);
     }
 
     private long ledgerEntries(long customerId) {

@@ -19,4 +19,11 @@ public final class Await {
     public static ConditionFactory awaitAtMost() {
         return Awaitility.await().atMost(AT_MOST).pollInterval(POLL_INTERVAL);
     }
+
+    /**
+     * A wait that also bounds how long the effect may take - for an effect that must not be delayed by retries.
+     */
+    public static ConditionFactory awaitWithin(Duration limit) {
+        return Awaitility.await().atMost(limit).pollInterval(POLL_INTERVAL);
+    }
 }

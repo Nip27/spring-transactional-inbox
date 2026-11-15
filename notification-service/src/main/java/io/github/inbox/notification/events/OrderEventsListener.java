@@ -13,6 +13,8 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.messaging.Message;
 import org.springframework.stereotype.Component;
 
+import java.util.UUID;
+
 /**
  * Sends an order confirmation for every placed order, at most once per event.
  * <p>
@@ -35,12 +37,20 @@ public class OrderEventsListener {
 
     @KafkaListener(topics = Topics.ORDER_EVENTS, containerFactory = "inboxKafkaListenerContainerFactory")
     public void onOrderEvent(Message<?> message) {
-        inbox.consume(message, OnceboxHeadersUtils::extractId, this::handle);
+        inbox.consume(message, OrderEventsListener::eventId, this::handle);
+    }
+
+    private static UUID eventId(Message<?> message) {
+        try {
+            return OnceboxHeadersUtils.extractId(message);
+        } catch (IllegalArgumentException e) {
+            throw new MalformedEventException("Message without a usable event id: " + e.getMessage(), e);
+        }
     }
 
     private void handle(Message<?> message) {
         switch (message.getPayload()) {
-            case OrderCreatedEvent created -> mailer.sendConfirmation(OnceboxHeadersUtils.extractId(message), created);
+            case OrderCreatedEvent created -> mailer.sendConfirmation(eventId(message), created);
             case OrderCancelledEvent cancelled -> log.debug("Order {} cancelled, no e-mail to send", cancelled.orderId());
             default -> throw new UnsupportedEventException(message.getPayload());
         }

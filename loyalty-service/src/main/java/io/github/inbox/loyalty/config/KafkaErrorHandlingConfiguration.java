@@ -1,5 +1,6 @@
 package io.github.inbox.loyalty.config;
 
+import io.github.inbox.loyalty.events.MalformedEventException;
 import io.github.inbox.loyalty.events.UnsupportedEventException;
 import org.apache.kafka.common.TopicPartition;
 import org.springframework.beans.factory.annotation.Value;
@@ -38,7 +39,7 @@ public class KafkaErrorHandlingConfiguration {
         backOff.setMultiplier(2.0);
         backOff.setMaxInterval(maxBackoff.toMillis());
         DefaultErrorHandler errorHandler = new DefaultErrorHandler(recoverer, backOff);
-        errorHandler.addNotRetryableExceptions(UnsupportedEventException.class);
+        errorHandler.addNotRetryableExceptions(UnsupportedEventException.class, MalformedEventException.class);
         return errorHandler;
     }
 }

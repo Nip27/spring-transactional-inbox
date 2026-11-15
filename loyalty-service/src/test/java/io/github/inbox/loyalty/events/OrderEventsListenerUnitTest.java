@@ -79,6 +79,30 @@ class OrderEventsListenerUnitTest {
         verifyNoInteractions(points);
     }
 
+    @Test
+    @DisplayName("UT onOrderEvent() when the message has no event id header should refuse it as malformed")
+    void onOrderEvent_whenEventIdHeaderIsMissing_shouldThrowMalformedEventException() {
+        // given
+        Message<?> withoutId = MessageBuilder.withPayload("{}").build();
+
+        // when / then
+        assertThatThrownBy(() -> tested.onOrderEvent(withoutId))
+                .isInstanceOf(MalformedEventException.class)
+                .hasMessageStartingWith("Message without a usable event id");
+        assertThat(inbox.consumedIds()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("UT onOrderEvent() when the event id header is not a UUID should refuse it as malformed")
+    void onOrderEvent_whenEventIdIsNotUuid_shouldThrowMalformedEventException() {
+        // given
+        Message<?> badId = MessageBuilder.withPayload("{}").setHeader("oncebox_event_id", "not-a-uuid").build();
+
+        // when / then
+        assertThatThrownBy(() -> tested.onOrderEvent(badId))
+                .isInstanceOf(MalformedEventException.class);
+    }
+
     private static Message<?> message(Object payload) {
         return MessageBuilder.withPayload(payload)
                 .setHeader("oncebox_event_id", EVENT_ID.toString())
