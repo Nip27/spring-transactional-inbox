@@ -1,9 +1,13 @@
 package io.github.inbox.order.order;
 
+import io.github.inbox.contract.EventTypes;
+import io.github.inbox.contract.OrderCancelledEvent;
+import io.github.inbox.contract.OrderCreatedEvent;
 import io.github.inbox.order.api.CancelOrderRequest;
 import io.github.inbox.order.api.CreateOrderRequest;
 import io.github.inbox.order.api.OrderLineRequest;
 import io.github.inbox.order.api.OrderResponse;
+import io.github.inbox.order.events.EventPublisher;
 import io.github.inbox.order.persistence.OrderEntity;
 import io.github.inbox.order.persistence.OrderLineEntity;
 import io.github.inbox.order.persistence.OrderRepository;
@@ -15,6 +19,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -26,6 +31,8 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -37,18 +44,21 @@ class OrderServiceUnitTest {
     @Mock
     private OrderRepository repository;
 
+    @Mock
+    private EventPublisher events;
+
     private OrderService tested;
 
     @BeforeEach
     void setUp() {
-        tested = new OrderService(repository, new OrderMapper(), Clock.fixed(NOW, ZoneOffset.UTC));
+        tested = new OrderService(repository, new OrderMapper(), events, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
     @DisplayName("UT create() when request is valid should store a created order stamped with the current time")
     void create_whenRequestIsValid_shouldStoreCreatedOrder() {
         // given
-        when(repository.save(any(OrderEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(repository.save(any(OrderEntity.class))).thenAnswer(invocation -> withId(invocation.getArgument(0), 7L));
         CreateOrderRequest request = new CreateOrderRequest(42L, "customer@example.com", "EUR",
                 List.of(new OrderLineRequest("sku-1", 2, new BigDecimal("10.50"))));
 
@@ -62,6 +72,28 @@ class OrderServiceUnitTest {
         assertThat(response.status()).isEqualTo(OrderStatus.CREATED);
         assertThat(response.totalAmount()).isEqualByComparingTo("21.00");
         assertThat(response.lines()).singleElement().satisfies(line -> assertThat(line.productId()).isEqualTo("sku-1"));
+    }
+
+    @Test
+    @DisplayName("UT create() when order is stored should publish order-created with its lines and total")
+    void create_whenOrderIsStored_shouldPublishOrderCreated() {
+        // given
+        when(repository.save(any(OrderEntity.class))).thenAnswer(invocation -> withId(invocation.getArgument(0), 7L));
+        CreateOrderRequest request = new CreateOrderRequest(42L, "customer@example.com", "EUR",
+                List.of(new OrderLineRequest("sku-1", 2, new BigDecimal("10.50"))));
+
+        // when
+        tested.create(request);
+
+        // then
+        ArgumentCaptor<Object> event = ArgumentCaptor.forClass(Object.class);
+        verify(events).publish(eq(EventTypes.ORDER_CREATED), event.capture());
+        assertThat(event.getValue()).isInstanceOfSatisfying(OrderCreatedEvent.class, created -> {
+            assertThat(created.customerEmail()).isEqualTo("customer@example.com");
+            assertThat(created.totalAmount()).isEqualByComparingTo("21.00");
+            assertThat(created.createdAt()).isEqualTo(NOW);
+            assertThat(created.lines()).singleElement().satisfies(line -> assertThat(line.quantity()).isEqualTo(2));
+        });
     }
 
     @Test
@@ -103,6 +135,12 @@ class OrderServiceUnitTest {
         assertThat(response.status()).isEqualTo(OrderStatus.CANCELLED);
         assertThat(response.cancelReason()).isEqualTo("changed my mind");
         assertThat(response.cancelledAt()).isEqualTo(NOW);
+        ArgumentCaptor<Object> event = ArgumentCaptor.forClass(Object.class);
+        verify(events).publish(eq(EventTypes.ORDER_CANCELLED), event.capture());
+        assertThat(event.getValue()).isInstanceOfSatisfying(OrderCancelledEvent.class, cancelled -> {
+            assertThat(cancelled.reason()).isEqualTo("changed my mind");
+            assertThat(cancelled.cancelledAt()).isEqualTo(NOW);
+        });
     }
 
     @Test
@@ -118,6 +156,7 @@ class OrderServiceUnitTest {
                 .isInstanceOf(OrderAlreadyCancelledException.class)
                 .hasMessage("Order 7 is already cancelled");
         assertThat(order.getCancelReason()).isEqualTo("first");
+        verifyNoInteractions(events);
     }
 
     @Test
@@ -132,7 +171,12 @@ class OrderServiceUnitTest {
     }
 
     private static OrderEntity newOrder() {
-        return new OrderEntity(42L, "customer@example.com", "EUR",
-                List.of(new OrderLineEntity("sku-1", 2, new BigDecimal("10.50"))), NOW.minusSeconds(3600));
+        return withId(new OrderEntity(42L, "customer@example.com", "EUR",
+                List.of(new OrderLineEntity("sku-1", 2, new BigDecimal("10.50"))), NOW.minusSeconds(3600)), 7L);
+    }
+
+    private static OrderEntity withId(OrderEntity order, Long id) {
+        ReflectionTestUtils.setField(order, "id", id);
+        return order;
     }
 }

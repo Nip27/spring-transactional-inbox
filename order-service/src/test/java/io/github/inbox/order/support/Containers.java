@@ -1,6 +1,7 @@
 package io.github.inbox.order.support;
 
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.utility.DockerImageName;
 
 /**
@@ -15,12 +16,20 @@ public final class Containers {
                     .withUsername("inbox")
                     .withPassword("inbox");
 
+    public static final KafkaContainer KAFKA = new KafkaContainer(DockerImageName.parse("apache/kafka:4.3.1"));
+
     private Containers() {
     }
 
     public static void startPostgres() {
         if (!POSTGRES.isRunning()) {
             POSTGRES.start();
+        }
+    }
+
+    public static void startKafka() {
+        if (!KAFKA.isRunning()) {
+            KAFKA.start();
         }
     }
 }

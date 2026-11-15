@@ -17,6 +17,52 @@ spring:
           time_zone: UTC
   liquibase:
     change-log: classpath:db/changelog/db.changelog-master.yaml
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    producer:
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      properties:
+        enable.idempotence: true
 
 server:
   port: ${SERVER_PORT:8080}
+
+oncebox:
+  thread-pool-size: 7
+  tables:
+    auto-create: true
+  distributed-lock:
+    resolve-by-polling-properties: true
+  outbox:
+    sender:
+      type: kafka
+    defaults:
+      batch-size: 200
+      polling:
+        type: adaptive
+        initial-delay: 5s
+        min-fixed-delay: 250ms
+        max-fixed-delay: 5s
+        multiplier: 1.5
+      max-retries: 5
+      backoff:
+        enabled: true
+        delay: 5s
+        multiplier: 2.0
+    events:
+      order-created:
+        topic: orders.events
+      order-cancelled:
+        topic: orders.events
+    stuck-recovery:
+      polling:
+        initial-delay: 30s
+    clean-up:
+      enabled: true
+      ttl: 1h
+      polling:
+        initial-delay: 1m
+    dlq:
+      enabled: true

@@ -1,8 +1,10 @@
 package io.github.inbox.order.order;
 
+import io.github.inbox.contract.EventTypes;
 import io.github.inbox.order.api.CancelOrderRequest;
 import io.github.inbox.order.api.CreateOrderRequest;
 import io.github.inbox.order.api.OrderResponse;
+import io.github.inbox.order.events.EventPublisher;
 import io.github.inbox.order.persistence.OrderEntity;
 import io.github.inbox.order.persistence.OrderRepository;
 import io.github.inbox.order.persistence.OrderStatus;
@@ -16,14 +18,19 @@ public class OrderService {
 
     private final OrderRepository repository;
     private final OrderMapper mapper;
+    private final EventPublisher events;
     private final Clock clock;
 
-    public OrderService(OrderRepository repository, OrderMapper mapper, Clock clock) {
+    public OrderService(OrderRepository repository, OrderMapper mapper, EventPublisher events, Clock clock) {
         this.repository = repository;
         this.mapper = mapper;
+        this.events = events;
         this.clock = clock;
     }
 
+    /**
+     * Stores a new order and publishes {@link EventTypes#ORDER_CREATED} in the same transaction.
+     */
     @Transactional
     public OrderResponse create(CreateOrderRequest request) {
         OrderEntity order = new OrderEntity(
@@ -33,7 +40,9 @@ public class OrderService {
                 mapper.toLineEntities(request.lines()),
                 clock.instant()
         );
-        return mapper.toResponse(repository.save(order));
+        OrderEntity stored = repository.save(order);
+        events.publish(EventTypes.ORDER_CREATED, mapper.toCreatedEvent(stored));
+        return mapper.toResponse(stored);
     }
 
     /**
@@ -45,7 +54,7 @@ public class OrderService {
     }
 
     /**
-     * Cancels a created order. Cancelling an already cancelled order is refused rather than ignored, so a client
+     * Cancels a created order and publishes {@link EventTypes#ORDER_CANCELLED} in the same transaction. Cancelling an already cancelled order is refused rather than ignored, so a client
      * retrying with another reason learns that the first cancellation stands.
      *
      * @throws OrderNotFoundException         if there is no order with this id
@@ -58,6 +67,7 @@ public class OrderService {
             throw new OrderAlreadyCancelledException(orderId);
         }
         order.cancel(request.reason(), clock.instant());
+        events.publish(EventTypes.ORDER_CANCELLED, mapper.toCancelledEvent(order));
         return mapper.toResponse(order);
     }
 

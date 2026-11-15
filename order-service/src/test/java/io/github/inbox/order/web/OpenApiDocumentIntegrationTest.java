@@ -1,11 +1,9 @@
 package io.github.inbox.order.web;
 
-import io.github.inbox.order.support.PostgresIntegrationTest;
+import io.github.inbox.order.support.ApplicationIntegrationTest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.TestConstructor;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.hamcrest.Matchers.hasKey;
@@ -14,10 +12,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest
 @AutoConfigureMockMvc
-@TestConstructor(autowireMode = TestConstructor.AutowireMode.ALL)
-class OpenApiDocumentIntegrationTest extends PostgresIntegrationTest {
+class OpenApiDocumentIntegrationTest extends ApplicationIntegrationTest {
 
     private static final String GET_ORDER = "$.paths['/api/v1/orders/{id}'].get.responses";
     private static final String CREATE_ORDER = "$.paths['/api/v1/orders'].post.responses";

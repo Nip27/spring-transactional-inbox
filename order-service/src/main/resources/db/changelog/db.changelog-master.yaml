@@ -3,3 +3,5 @@ databaseChangeLog:
       file: db/changelog/changes/001-orders.sql
   - include:
       file: db/changelog/changes/002-order-lines.sql
+  - include:
+      file: db/changelog/changes/003-published-events.sql
