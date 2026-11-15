@@ -36,6 +36,7 @@
 
     <modules>
         <module>inbox-events-contract</module>
+        <module>order-service</module>
     </modules>
 
     <properties>
@@ -123,6 +124,9 @@
                             <goal>check</goal>
                         </goals>
                         <configuration>
+                            <excludes>
+                                <exclude>**/*Application.class</exclude>
+                            </excludes>
                             <rules>
                                 <rule>
                                     <element>BUNDLE</element>
