@@ -38,6 +38,7 @@
         <module>inbox-events-contract</module>
         <module>order-service</module>
         <module>loyalty-service</module>
+        <module>notification-service</module>
     </modules>
 
     <properties>
@@ -47,6 +48,7 @@
         <oncebox.version>2.0.0</oncebox.version>
         <springdoc.version>2.8.15</springdoc.version>
         <testcontainers.version>1.21.3</testcontainers.version>
+        <greenmail.version>2.1.13</greenmail.version>
         <jacoco.version>0.8.14</jacoco.version>
         <jacoco.minimum-line-coverage>0.80</jacoco.minimum-line-coverage>
     </properties>
@@ -72,6 +74,11 @@
                 <groupId>io.github.dmitriy-iliyov</groupId>
                 <artifactId>oncebox-metrics</artifactId>
                 <version>${oncebox.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.icegreen</groupId>
+                <artifactId>greenmail-junit5</artifactId>
+                <version>${greenmail.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.springdoc</groupId>

@@ -1,0 +1,48 @@
+package io.github.inbox.notification.events;
+
+import io.github.dmitriyiliyov.oncebox.core.OnceboxHeadersUtils;
+import io.github.dmitriyiliyov.oncebox.core.inbox.IdempotentConsumer;
+import io.github.dmitriyiliyov.oncebox.starter.inbox.NonTransactionalConsumer;
+import io.github.inbox.contract.OrderCancelledEvent;
+import io.github.inbox.contract.OrderCreatedEvent;
+import io.github.inbox.contract.Topics;
+import io.github.inbox.notification.mail.OrderConfirmationMailer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.messaging.Message;
+import org.springframework.stereotype.Component;
+
+/**
+ * Sends an order confirmation for every placed order, at most once per event.
+ * <p>
+ * An e-mail cannot be taken back, so the inbox records the event before the e-mail is sent: a repeated event is
+ * skipped, and so is a redelivery of one whose sending failed - that confirmation is not sent, rather than possibly
+ * sent twice. The library logs such a failure with the ids it will not process again.
+ */
+@Component
+public class OrderEventsListener {
+
+    private static final Logger log = LoggerFactory.getLogger(OrderEventsListener.class);
+
+    private final IdempotentConsumer inbox;
+    private final OrderConfirmationMailer mailer;
+
+    public OrderEventsListener(@NonTransactionalConsumer IdempotentConsumer inbox, OrderConfirmationMailer mailer) {
+        this.inbox = inbox;
+        this.mailer = mailer;
+    }
+
+    @KafkaListener(topics = Topics.ORDER_EVENTS, containerFactory = "inboxKafkaListenerContainerFactory")
+    public void onOrderEvent(Message<?> message) {
+        inbox.consume(message, OnceboxHeadersUtils::extractId, this::handle);
+    }
+
+    private void handle(Message<?> message) {
+        switch (message.getPayload()) {
+            case OrderCreatedEvent created -> mailer.sendConfirmation(OnceboxHeadersUtils.extractId(message), created);
+            case OrderCancelledEvent cancelled -> log.debug("Order {} cancelled, no e-mail to send", cancelled.orderId());
+            default -> throw new UnsupportedEventException(message.getPayload());
+        }
+    }
+}
