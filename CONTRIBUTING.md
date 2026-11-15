@@ -93,9 +93,11 @@ AssertJ for assertions, Awaitility (through the module's `Await` helper) for any
 
 ### Commits and pull requests
 
-* Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/):
-  `feat(loyalty): ...`, `fix(order): ...`, `test(notification): ...`, `docs: ...`, `build: ...`, `ci: ...` -
-  short and imperative.
+* Commit messages are `type(what the change makes true)`: the type, then the whole description in parentheses,
+  lower case, saying what the code now does - for example `feat(notification service api is documented with
+  openapi)`, `fix(records without an event id go to the dead letter topic without retries)`,
+  `test(a repeated event id sends one confirmation)`, `chore(spring boot is bumped to 3.5.16)`. Types: `feat`,
+  `fix`, `test`, `docs`, `ci`, `chore`, `refactor`, `build`.
 * One issue, one focused pull request, with `Closes #N` in its description.
 * Add a line to the `[Unreleased]` section of [CHANGELOG.md](CHANGELOG.md) with the issue number and your GitHub
   handle.
